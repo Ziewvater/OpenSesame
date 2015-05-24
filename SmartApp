@@ -1,0 +1,126 @@
+/**
+ *  Open Sesame
+ *
+ *  Copyright 2015 Cool Team 1
+ *
+ *  Licensed under the Apache License, Version 2.0 (the "License"); you may not use this file except
+ *  in compliance with the License. You may obtain a copy of the License at:
+ *
+ *      http://www.apache.org/licenses/LICENSE-2.0
+ *
+ *  Unless required by applicable law or agreed to in writing, software distributed under the License is distributed
+ *  on an "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied. See the License
+ *  for the specific language governing permissions and limitations under the License.
+ *
+ */
+definition(
+    name: "Open Sesame",
+    namespace: "Ziewvater",
+    author: "Open Sesame Team",
+    description: "Unlock your home without your keys.",
+    category: "Safety & Security",
+    iconUrl: "https://s3.amazonaws.com/smartapp-icons/Convenience/Cat-Convenience.png",
+    iconX2Url: "https://s3.amazonaws.com/smartapp-icons/Convenience/Cat-Convenience@2x.png",
+    iconX3Url: "https://s3.amazonaws.com/smartapp-icons/Convenience/Cat-Convenience@2x.png")
+
+
+preferences {
+	section("Lock") {
+    	// Lock for the door to lock/unlock
+        input "lock", "capability.lock", title: "Choose a lock to unlock, or lock. Either one, really.", multiple: true
+        // Device that locks the door 
+		input "knockDetector", "capability.switch", title: "This guy tells you when to open.", multiple: false
+	}
+    section("Two-factor Verification") {
+        // Optional contact sensor that can be used as an additional security measure. If used, the knock sequence will only unlock the door if the contact sensor is closed.
+    	input "arrangementSwitch", "capability.contactSensor", title: "Optional open/closed switch for SECRET AUTHENTICATION", required: false
+    }
+    section("Lights") {
+        // Lights to be turned on/off when the door is unlocked/locked.
+    	input "lights", "capability.switch", title: "Lights to turn on/off with door unlock/lock", required: false, multiple: true
+    }
+    section("Notifications") {
+        // Notifications can be sent to a phone number when the door is locked/unlocked. Custom messages are supported for door unlocks
+    	input "phone", "phone", title: "Phone number to notify", required: false
+        input "message", "text", title: "Message to send", required: false
+        input "invalidEntryMessage", "text", title: "Message if someone tries to enter without activating the SECRET SWITCH", required: false
+    }
+}
+
+def installed() {
+	log.debug "Installed with settings: ${settings}"
+
+	initialize()
+}
+
+def updated() {
+	log.debug "Updated with settings: ${settings}"
+
+	unsubscribe()
+	initialize()
+}
+
+def initialize() {
+    subscribe(lock, "lock.locked", lockLocked)
+    subscribe(lock, "lock.unlocked", lockUnlocked)
+    
+    subscribe(knockDetector, "switch.on", goodKnock)
+}
+
+// MARK: - Subscriptions
+
+def lockLocked(event) {
+	log.debug("Lock was locked")
+    sendMessage("Front door was locked")
+  	runIn(15, lightsOut)
+}
+
+def lockUnlocked(event) {
+	log.debug("lock was unlocked")  
+    if (message != null) {
+    	sendMessage(message)
+    } else {
+        sendMessage("Front door unlocked.")
+    }
+}
+
+// Handles unlock events from proper knock patterns
+def goodKnock(event) {
+	log.debug("Received proper knock pattern from shield")
+    log.debug("${arrangementSwitch}")
+    if (arrangementSwitch != null) {
+        if (arrangementSwitch?.currentValue("contact") == "open") {
+            log.debug("Switch not closed, not opening lock")
+            if (invalidEntryMessage != null) {
+                sendMessage(invalidEntryMessage)
+            }
+            return
+        } else {
+            log.debug("Switch closed, opening lock")
+        }
+    } else {
+		log.debug "Switch not detected"
+    }
+    log.debug "Turning lights on"
+    lights?.each { light ->
+    	light.on() 
+    }
+	lock.unlock()
+}
+
+// MARK: - Other actions
+
+def lightsOut() {
+	log.debug "Turning lights off"
+	lights?.each { light ->
+    	light.off()
+    }
+}
+
+// MARK: - Message Handling
+
+def sendMessage(String message) {
+    if (message != null && phone != null) {
+        sendNotification(message, ["method": "phone", "phone": phone])
+    }
+}
